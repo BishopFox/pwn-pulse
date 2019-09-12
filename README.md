@@ -9,6 +9,8 @@ This script extracts private keys, usernames, admin details (including session c
 * It then greps through the files for sensitive information and dumps it all into a file named [TARGET]_extractions.txt
 * By default, it will also test each session cookie to see if the session is currently active (and thus available for hijacking).
 
+Additional details about the development of the script are available in [this blog article](https://know.bishopfox.com/blog/breaching-the-trusted-perimeter).
+
 ### Usage:
 ```
 Download files, extract, and test:
