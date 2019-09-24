@@ -18,5 +18,5 @@ Download files, extract, and test:
 Extract from existing files only:
    ./pwn-pulse.sh --no-downloads [TARGET DOMAIN/IP]
 Skip active session cookie tests:
-   ./pwn-pulse.sh --no-cookie-tests [TARGET DOMAIN/IP]"
+   ./pwn-pulse.sh --no-cookie-tests [TARGET DOMAIN/IP]
 ```
