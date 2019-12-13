@@ -22,7 +22,6 @@ Additional details about the development of the script are available in [this bl
   Connect Secure VPN files downloaded via CVE-2019-11510.
 
   Usage: pwn-pulse.sh [options]
-         pwn-pulse.sh -o <version> -c
 
   Options:
         -h    show this output
