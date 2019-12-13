@@ -472,7 +472,7 @@ function extract_vpn_logins {
     fi
   
     # Look for any other usernames and passwords cached in base64
-    if [ $(echo "YQ==" | base64 -d 2>/dev/null) == "a" ];then
+    if [ "$(echo "YQ==" | base64 -d 2>/dev/null)" == "a" ];then
       b64="d" # GNU base64
     else
       b64="D" # Mac base64
