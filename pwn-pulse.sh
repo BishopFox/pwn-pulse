@@ -140,7 +140,8 @@ function check_vulnerable {
   target=$1
   echo "  [#] Check if vulnerable..."
   status=$(curl -skIo /dev/null -w "%{http_code}" --path-as-is https://${target}/${URL_VULN_CHECK})
-  if [ "$status" == "200" ];then
+  check=$(egrep -c '<PARAM NAME="(ProductName|ProductVersion|DownloadPath|DownloadPath64|DisplayName)"' $DATA_DIR/$target/${target}_version)
+  if [[ "$status" == "200" && $check -gt 3 ]];then
     echo "    [+] Vulnerable!"
     download_files $target
   else
