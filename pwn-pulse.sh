@@ -91,7 +91,7 @@ function check_target {
   else
     target_list=$(echo ${target_list} | egrep -o "(([0-9]{1,3}\.){3}[0-9]{1,3})|(^[-\.a-zA-Z]+[0-9]*[-\.a-zA-Z]*$)")
   fi
-  target_list=$(echo ${target_list} | sed -E "s/\\s/\\n/g" | sort -u)
+  target_list="$(echo ${target_list} | tr ' ' '\n' | sort -u)"
   if [ "${target_list}" == "" ];then
     echo "  [!] Target empty or unrecognized!"
     exit 1
@@ -105,7 +105,7 @@ function check_target {
       fi
     done
   fi
-  echo "  [+] Targets: #$(echo ${target_list} | sed -E "s/\\s/\\n/g" | wc -l)"
+  echo "  [+] Targets: #$(echo ${target_list} | tr ' ' '\n' | wc -l)" 
   echo "    [+] Done"
 }
 
