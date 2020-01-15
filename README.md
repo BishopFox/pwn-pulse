@@ -6,17 +6,30 @@ Script authored by braindead @BishopFox. Based on [research by Orange Tsai and M
 This script extracts private keys, usernames, admin details (including session cookies) and observed logins (including passwords) from Pulse Connect Secure VPN files downloaded via CVE-2019-11510.
 
 * It takes the target domain or IP as an argument and will download important files from the server using the arbitrary file read vulnerability.
-* It then greps through the files for sensitive information and dumps it all into a file named [TARGET]_extractions.txt
-* By default, it will also test each session cookie to see if the session is currently active (and thus available for hijacking).
+* It then greps through the files for sensitive information and dumps it all into a file named [TARGET]_report.txt
+* It could also test each session cookie to see if the session is currently active (and thus available for hijacking).
 
 Additional details about the development of the script are available in [this blog article](https://know.bishopfox.com/blog/breaching-the-trusted-perimeter).
 
 ### Usage:
 ```
-Download files, extract, and test:
-   ./pwn-pulse.sh [TARGET DOMAIN/IP]
-Extract from existing files only:
-   ./pwn-pulse.sh --no-downloads [TARGET DOMAIN/IP]
-Skip active session cookie tests:
-   ./pwn-pulse.sh --no-cookie-tests [TARGET DOMAIN/IP]
+./pwn-pulse.sh -h
+
+  [pwn-pulse.sh by braindead @BishopFox]
+
+  This script extracts private keys, usernames, admin details (including
+  session cookies) and observed logins (including passwords) from Pulse
+  Connect Secure VPN files downloaded via CVE-2019-11510.
+
+  Usage: pwn-pulse.sh [options]
+
+  Options:
+        -h & show this output
+        -t & set the target (IPs - single entry by stdin, in csv format, single column in a file)
+        -d & download config, cache and sessions files
+        -c & test cookies in order to identify active sessions
+        -k & test cookies without downloading files (already downloaded and extracted)
+        -s & extract ssh keys
+        -a & all tests
+        
 ```
