@@ -1,7 +1,7 @@
 # pwn-pulse.sh
 **Exploit for Pulse Connect Secure SSL VPN arbitrary file read vulnerability (CVE-2019-11510)**
 
-Script authored by braindead @BishopFox. Based on [research by Orange Tsai and Meh Chang](https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html). Thanks also to Alyssa Herrera and 0xDezzy for additional insights
+Script authored by braindead @BishopFox. Based on [research by Orange Tsai and Meh Chang](https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html). Thanks also to Alyssa Herrera and 0xDezzy for additional insights. Huge thanks to bl4ckh0l3z for fixing, cleaning and refactoring the code significantly!
 
 This script extracts private keys, usernames, admin details (including session cookies) and observed logins (including passwords) from Pulse Connect Secure VPN files downloaded via CVE-2019-11510.
 
