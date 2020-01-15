@@ -24,12 +24,12 @@ Additional details about the development of the script are available in [this bl
   Usage: pwn-pulse.sh [options]
 
   Options:
-        -h & show this output
-        -t & set the target (IPs - single entry by stdin, in csv format, single column in a file)
-        -d & download config, cache and sessions files
-        -c & test cookies in order to identify active sessions
-        -k & test cookies without downloading files (already downloaded and extracted)
-        -s & extract ssh keys
-        -a & all tests
+        -h   show this output
+        -t   set the target (IPs - single entry by stdin, in csv format, single column in a file)
+        -d   download config, cache and sessions files
+        -c   test cookies in order to identify active sessions
+        -k   test cookies without downloading files (already downloaded and extracted)
+        -s   extract ssh keys
+        -a   all tests
         
 ```
